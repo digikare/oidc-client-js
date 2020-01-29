@@ -12,7 +12,10 @@ describe("JsonService", function() {
     let subject;
 
     beforeEach(function() {
-        fetchMock.mock('http://test', 200);
+        fetchMock.mock('http://test', () => ({
+            status: 200,
+            body: {},
+        }));
         subject = new JsonService();
     });
     afterEach(function() {
@@ -40,14 +43,17 @@ describe("JsonService", function() {
 
         it("should make GET request to url", function() {
             let p = subject.getJson("http://test");
-            // stubHttpRequest.method.should.be.equal('GET');
-            // stubHttpRequest.url.should.be.equal('http://test');
+            const [url, params] = fetchMock.lastCall();
+            params.method.should.not.be.undefined;
+            params.method.should.be.equal('GET');
+            url.should.be.equal('http://test/');
         });
 
         it("should set token as authorization header", function() {
             let p = subject.getJson("http://test", "token");
-            // stubHttpRequest.headers.has('Authorization').should.be.true;
-            // stubHttpRequest.headers.get('Authorization').should.be.equal('Bearer token');
+            const [uri, params] = fetchMock.lastCall();
+            params.headers.Authorization.should.not.be.undefined;
+            params.headers.Authorization.should.be.equal('Bearer token');
         });
 
         it("should fulfill promise when http response is 200", function(done) {
@@ -89,12 +95,10 @@ describe("JsonService", function() {
                 done();
             });
 
-            // stubHttpRequest.status = 500;
-            // stubHttpRequest.statusText = "server error";
-            // stubHttpRequest.onload();
         });
 
         it("should reject promise when http response is error", function(done) {
+            fetch = () => Promise.reject('error');
             let p = subject.getJson("http://test");
 
             p.then(result => {
@@ -105,7 +109,6 @@ describe("JsonService", function() {
                 done();
             });
 
-            // stubHttpRequest.onerror();
         });
 
         it("should reject promise when http response content type is not json", function(done) {
@@ -128,10 +131,6 @@ describe("JsonService", function() {
                 done();
             });
 
-            // stubHttpRequest.status = 200;
-            // stubHttpRequest.responseHeaders.set('Content-Type', 'text/html');
-            // stubHttpRequest.responseText = JSON.stringify({foo:1, bar:'test'});
-            // stubHttpRequest.onload();
         });
 
         it("should accept custom content type in response", function(done) {
@@ -152,10 +151,6 @@ describe("JsonService", function() {
                 done();
             });
 
-            // stubHttpRequest.status = 200;
-            // stubHttpRequest.responseHeaders.set('Content-Type', 'foo/bar');
-            // stubHttpRequest.responseText = JSON.stringify({foo:1, bar:'test'});
-            // stubHttpRequest.onload();
         });
     });
 });
