@@ -9,14 +9,14 @@ const AccessTokenTypeHint = "access_token";
 const RefreshTokenTypeHint = "refresh_token";
 
 export class TokenRevocationClient {
-    constructor(settings, XMLHttpRequestCtor = Global.XMLHttpRequest, MetadataServiceCtor = MetadataService) {
+    constructor(settings, fetch = Global.fetch, MetadataServiceCtor = MetadataService) {
         if (!settings) {
             Log.error("TokenRevocationClient.ctor: No settings provided");
             throw new Error("No settings provided.");
         }
 
         this._settings = settings;
-        this._XMLHttpRequestCtor = XMLHttpRequestCtor;
+        this._fetch = fetch;
         this._metadataService = new MetadataServiceCtor(this._settings);
     }
 
@@ -51,35 +51,37 @@ export class TokenRevocationClient {
 
     _revoke(url, client_id, client_secret, token, type) {
 
-        return new Promise((resolve, reject) => {
+        var formBodyObj = {
+            client_id: client_id,
+            token_type_hint: type,
+            token: token
+        };
 
-            var xhr = new this._XMLHttpRequestCtor();
-            xhr.open("POST", url);
+        if (client_secret) {
+            formBody.client_secret = client_secret;
+        }
 
-            xhr.onload = () => {
-                Log.debug("TokenRevocationClient.revoke: HTTP response received, status", xhr.status);
-
-                if (xhr.status === 200) {
-                    resolve();
-                }
-                else {
-                    reject(Error(xhr.statusText + " (" + xhr.status + ")"));
-                }
-            };
-            xhr.onerror = () => { 
-                Log.debug("TokenRevocationClient.revoke: Network Error.")
-                reject("Network Error");
-            };
-
-            var body = "client_id=" + encodeURIComponent(client_id);
-            if (client_secret) {
-                body += "&client_secret=" + encodeURIComponent(client_secret);
-            }
-            body += "&token_type_hint=" + encodeURIComponent(type);
-            body += "&token=" + encodeURIComponent(token);
-
-            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            xhr.send(body);
+        var formBody = Object.keys(formBodyObj).map(key => {
+            return key + "=" +  encodeURIComponent(formBodyObj[key]);
         });
+
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body: formBody.join('&'),
+        })
+        .then((response) => {
+            if (response.ok && response.status === 200) {
+                return true;
+            }
+            throw new Error(response.statusText + "(" + response.statusText + ")");
+        }, (err) => {
+            throw new Error('Network Error');
+        })
+        .catch(err => {
+            Log.debug("TokenRevocationClient.revoke: " + err);
+        })
     }
 }
