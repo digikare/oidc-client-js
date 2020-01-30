@@ -1,13 +1,21 @@
 // Copyright (c) Brock Allen & Dominick Baier. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
 
+if (!process) {
+    require('unfetch/polyfill/index.js');
+}
+
 import { Log } from './Log.js';
-import { Global } from './Global.js';
+
+/**
+ * jwtHandler(req)
+ *
+ * req.responseText (text response)
+ */
 
 export class JsonService {
     constructor(
-        additionalContentTypes = null, 
-        XMLHttpRequestCtor = Global.XMLHttpRequest, 
+        additionalContentTypes = null,
         jwtHandler = null
     ) {
         if (additionalContentTypes && Array.isArray(additionalContentTypes))
@@ -23,7 +31,6 @@ export class JsonService {
             this._contentTypes.push('application/jwt');
         }
 
-        this._XMLHttpRequest = XMLHttpRequestCtor;
         this._jwtHandler = jwtHandler;
     }
 
@@ -35,65 +42,53 @@ export class JsonService {
 
         Log.debug("JsonService.getJson, url: ", url);
 
-        return new Promise((resolve, reject) => {
+        var allowedContentTypes = this._contentTypes;
+        var headers = {};
 
-            var req = new this._XMLHttpRequest();
-            req.open('GET', url);
+        if (token) {
+            Log.debug("JsonService.getJson: token passed, setting Authorization header");
+            headers.Authorization = "Bearer " + token;
+        }
 
-            var allowedContentTypes = this._contentTypes;
-            var jwtHandler = this._jwtHandler;
+        return fetch(url, {
+            method: 'GET',
+            headers: headers,
+        })
+        .then(function (response) {
 
-            req.onload = function() {
-                Log.debug("JsonService.getJson: HTTP response received, status", req.status);
-
-                if (req.status === 200) {
-
-                    var contentType = req.getResponseHeader("Content-Type");
-                    if (contentType) {
-
-                        var found = allowedContentTypes.find(item=>{
-                            if (contentType.startsWith(item)) {
-                                return true;
-                            }
-                        });
-
-                        if (found == "application/jwt") {
-                            jwtHandler(req).then(resolve, reject);
-                            return;
-                        }
-
-                        if (found) {
-                            try {
-                                resolve(JSON.parse(req.responseText));
-                                return;
-                            }
-                            catch (e) {
-                                Log.error("JsonService.getJson: Error parsing JSON response", e.message);
-                                reject(e);
-                                return;
-                            }
-                        }
-                    }
-
-                    reject(Error("Invalid response Content-Type: " + contentType + ", from URL: " + url));
-                }
-                else {
-                    reject(Error(req.statusText + " (" + req.status + ")"));
-                }
-            };
-
-            req.onerror = function() {
-                Log.error("JsonService.getJson: network error");
-                reject(Error("Network Error"));
-            };
-
-            if (token) {
-                Log.debug("JsonService.getJson: token passed, setting Authorization header");
-                req.setRequestHeader("Authorization", "Bearer " + token);
+            if (response.ok === false) {
+                throw new Error(response.statusText + " (" + response.status + ")");
             }
 
-            req.send();
-        });
+            return response;
+        }, function (err) {
+            throw new Error(`Network Error`);
+        }).then(function (response) {
+
+            var contentType = response.headers.get('content-type');
+            if (contentType) {
+                var found = allowedContentTypes.find(item => {
+                    if (contentType.startsWith(item)) {
+                        return response;
+                    }
+                });
+
+                if (found == "application/jwt") {
+                    return Promise.resolve(response.text()).then(function(responseText) {
+                        return jwtHandler({ responseText: responseText });
+                    })
+                }
+
+                if (found) {
+                    return response.json();
+                }
+            }
+            throw new Error("Invalid response Content-Type: " + contentType + ", from URL: " + url);
+
+        }).catch(function (error) {
+            Log.error("JsonService.getJson:", error);
+            throw error;
+        })
     }
 
     postForm(url, payload) {
@@ -104,100 +99,49 @@ export class JsonService {
 
         Log.debug("JsonService.postForm, url: ", url);
 
-        return new Promise((resolve, reject) => {
+        var allowedContentTypes = this._contentTypes;
+        var formBody = Object.keys(payload).map((key) => {
+            return encodeURIComponent(key) + "=" + encodeURIComponent(payload[key]);
+        });
 
-            var req = new this._XMLHttpRequest();
-            req.open('POST', url);
-
-            var allowedContentTypes = this._contentTypes;
-
-            req.onload = function() {
-                Log.debug("JsonService.postForm: HTTP response received, status", req.status);
-
-                if (req.status === 200) {
-
-                    var contentType = req.getResponseHeader("Content-Type");
-                    if (contentType) {
-
-                        var found = allowedContentTypes.find(item=>{
-                            if (contentType.startsWith(item)) {
-                                return true;
-                            }
-                        });
-
-                        if (found) {
-                            try {
-                                resolve(JSON.parse(req.responseText));
-                                return;
-                            }
-                            catch (e) {
-                                Log.error("JsonService.postForm: Error parsing JSON response", e.message);
-                                reject(e);
-                                return;
-                            }
-                        }
-                    }
-
-                    reject(Error("Invalid response Content-Type: " + contentType + ", from URL: " + url));
-                    return;
-                }
-
-                if (req.status === 400) {
-
-                    var contentType = req.getResponseHeader("Content-Type");
-                    if (contentType) {
-
-                        var found = allowedContentTypes.find(item=>{
-                            if (contentType.startsWith(item)) {
-                                return true;
-                            }
-                        });
-
-                        if (found) {
-                            try {
-                                var payload = JSON.parse(req.responseText);
-                                if (payload && payload.error) {
-                                    Log.error("JsonService.postForm: Error from server: ", payload.error);
-                                    reject(new Error(payload.error));
-                                    return;
-                                }
-                            }
-                            catch (e) {
-                                Log.error("JsonService.postForm: Error parsing JSON response", e.message);
-                                reject(e);
-                                return;
-                            }
-                        }
-                    }
-                }
-
-                reject(Error(req.statusText + " (" + req.status + ")"));
-            };
-
-            req.onerror = function() {
-                Log.error("JsonService.postForm: network error");
-                reject(Error("Network Error"));
-            };
-
-            let body = "";
-            for(let key in payload) {
-
-                let value = payload[key];
-
-                if (value) {
-
-                    if (body.length > 0) {
-                        body += "&";
-                    }
-
-                    body += encodeURIComponent(key);
-                    body += "=";
-                    body += encodeURIComponent(value);
-                }
+        return fetch(url, {
+            method: 'POST',
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: formBody.join('&')
+        })
+        .then(function (response) {
+            if (response.ok || response.status === 400) {
+                return response;
+            }
+            throw new Error(req.statusText + " (" + req.status + ")");
+        })
+        .then(function (response) {
+            var contentType = response.headers.get("content-type");
+            if (!contentType) {
+                throw new Error("Invalid response Content-Type: " + contentType + ", from URL: " + url);
             }
 
-            req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-            req.send(body);
+            var found = allowedContentTypes.find(item => {
+                if (contentType.startsWith(item)) {
+                    return true;
+                }
+            });
+
+            if (!found) {
+                throw new Error("Invalid response Content-Type: " + contentType + ", from URL: " + url);
+            }
+            return response.json();
+        })
+        .then(function (payload) {
+
+            if (payload && payload.error) {
+                Log.error("JsonService.postForm: Error from server: ", payload.error);
+                throw new Error(payload.error);
+            }
+
+            return payload;
         });
     }
 }
